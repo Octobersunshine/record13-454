@@ -1,6 +1,6 @@
 use crate::models::{
     CreateOperationRequest, CreateOperationResponse, DocumentOperation, PaginatedResponse,
-    PaginationQuery, PendingOperation,
+    PaginationQuery, PendingOperation, ReplayOperation, ReplayQuery, ReplayTimeline,
 };
 use crate::repository::OperationRepository;
 use axum::extract::{Path, Query, State};
@@ -68,6 +68,80 @@ pub async fn list_operations(
         }
         Err(_) => {
             error!("查询操作记录超时");
+            Err(StatusCode::GATEWAY_TIMEOUT)
+        }
+    }
+}
+
+pub async fn replay_operations(
+    State(repo): State<AppState>,
+    Path(document_id): Path<String>,
+    Query(query): Query<ReplayQuery>,
+) -> Result<Json<ReplayTimeline>, StatusCode> {
+    info!(
+        document_id = %document_id,
+        start_time = ?query.start_time,
+        end_time = ?query.end_time,
+        include_content = query.include_content,
+        "回放文档操作记录"
+    );
+
+    let query_future = repo.replay_operations(&document_id, query);
+
+    match timeout(Duration::from_secs(10), query_future).await {
+        Ok(Ok(operations)) => {
+            if operations.is_empty() {
+                return Err(StatusCode::NOT_FOUND);
+            }
+
+            let total_operations = operations.len() as i64;
+            let start_time = operations.first().unwrap().created_at;
+            let end_time = operations.last().unwrap().created_at;
+            let total_duration_ms = end_time
+                .signed_duration_since(start_time)
+                .num_milliseconds();
+
+            let mut replay_ops = Vec::with_capacity(operations.len());
+            for (i, op) in operations.iter().enumerate() {
+                let seq = (i + 1) as i64;
+                let time_delta_ms = if i == 0 {
+                    0
+                } else {
+                    op.created_at
+                        .signed_duration_since(operations[i - 1].created_at)
+                        .num_milliseconds()
+                };
+
+                replay_ops.push(ReplayOperation {
+                    sequence: seq,
+                    operation_id: op.id,
+                    user_id: op.user_id.clone(),
+                    operation_type: op.operation_type,
+                    timestamp: op.created_at,
+                    time_delta_ms,
+                    content_before: op.content_before.clone(),
+                    content_after: op.content_after.clone(),
+                    change_summary: op.change_summary.clone(),
+                });
+            }
+
+            let timeline = ReplayTimeline {
+                document_id,
+                total_operations,
+                start_time,
+                end_time,
+                total_duration_ms,
+                operations: replay_ops,
+            };
+
+            Ok(Json(timeline))
+        }
+        Ok(Err(e)) => {
+            error!("回放操作记录失败: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+        Err(_) => {
+            error!("回放操作记录超时");
             Err(StatusCode::GATEWAY_TIMEOUT)
         }
     }

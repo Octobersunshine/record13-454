@@ -146,3 +146,38 @@ impl<T> PaginatedResponse<T> {
         }
     }
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReplayQuery {
+    pub start_time: Option<DateTime<Utc>>,
+    pub end_time: Option<DateTime<Utc>>,
+    #[serde(default = "default_include_content")]
+    pub include_content: bool,
+}
+
+fn default_include_content() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReplayOperation {
+    pub sequence: i64,
+    pub operation_id: Uuid,
+    pub user_id: String,
+    pub operation_type: OperationType,
+    pub timestamp: DateTime<Utc>,
+    pub time_delta_ms: i64,
+    pub content_before: Option<String>,
+    pub content_after: Option<String>,
+    pub change_summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReplayTimeline {
+    pub document_id: String,
+    pub total_operations: i64,
+    pub start_time: DateTime<Utc>,
+    pub end_time: DateTime<Utc>,
+    pub total_duration_ms: i64,
+    pub operations: Vec<ReplayOperation>,
+}

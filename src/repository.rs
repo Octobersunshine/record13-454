@@ -1,4 +1,4 @@
-use crate::models::{DocumentOperation, OperationType, PendingOperation};
+use crate::models::{DocumentOperation, OperationType, PendingOperation, ReplayQuery};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::{SqlitePool, Row};
 use std::time::Duration;
@@ -266,6 +266,80 @@ impl OperationRepository {
         }
 
         Ok((items, total))
+    }
+
+    pub async fn replay_operations(
+        &self,
+        document_id: &str,
+        query: ReplayQuery,
+    ) -> Result<Vec<DocumentOperation>, sqlx::Error> {
+        let mut sql = r#"
+            SELECT id, document_id, user_id, operation_type, content_before,
+                   content_after, change_summary, created_at
+            FROM document_operations
+            WHERE document_id = ?
+        "#
+        .to_string();
+
+        let mut conditions: Vec<String> = Vec::new();
+        if query.start_time.is_some() {
+            conditions.push("created_at >= ?".to_string());
+        }
+        if query.end_time.is_some() {
+            conditions.push("created_at <= ?".to_string());
+        }
+
+        if !conditions.is_empty() {
+            sql.push_str(" AND ");
+            sql.push_str(&conditions.join(" AND "));
+        }
+
+        sql.push_str(" ORDER BY created_at ASC");
+
+        let mut sql_query = sqlx::query(&sql).bind(document_id);
+
+        if let Some(start_time) = query.start_time {
+            sql_query = sql_query.bind(start_time);
+        }
+        if let Some(end_time) = query.end_time {
+            sql_query = sql_query.bind(end_time);
+        }
+
+        let rows = sql_query.fetch_all(&self.pool).await?;
+
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            let operation_type_str: String = row.try_get("operation_type")?;
+            let operation_type = OperationType::from_str(&operation_type_str)
+                .unwrap_or(OperationType::Edit);
+
+            let id_str: String = row.try_get("id")?;
+            let id = Uuid::parse_str(&id_str).unwrap_or_else(|_| uuid::Uuid::new_v4());
+
+            let content_before = if query.include_content {
+                row.try_get("content_before")?
+            } else {
+                None
+            };
+            let content_after = if query.include_content {
+                row.try_get("content_after")?
+            } else {
+                None
+            };
+
+            items.push(DocumentOperation {
+                id,
+                document_id: row.try_get("document_id")?,
+                user_id: row.try_get("user_id")?,
+                operation_type,
+                content_before,
+                content_after,
+                change_summary: row.try_get("change_summary")?,
+                created_at: row.try_get("created_at")?,
+            });
+        }
+
+        Ok(items)
     }
 
     pub async fn init_db(&self) -> Result<(), sqlx::Error> {

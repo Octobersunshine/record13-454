@@ -2,7 +2,7 @@ mod handlers;
 mod models;
 mod repository;
 
-use crate::handlers::{create_operation, health_check, list_operations, AppState};
+use crate::handlers::{create_operation, health_check, list_operations, replay_operations, AppState};
 use crate::repository::OperationRepository;
 use axum::routing::{get, post};
 use axum::Router;
@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health_check))
         .route("/api/operations", post(create_operation))
         .route("/api/operations/:document_id", get(list_operations))
+        .route("/api/operations/:document_id/replay", get(replay_operations))
         .with_state(app_state);
 
     let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
