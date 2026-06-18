@@ -59,6 +59,46 @@ pub struct CreateOperationRequest {
     pub change_summary: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PendingOperation {
+    pub id: Uuid,
+    pub document_id: String,
+    pub user_id: String,
+    pub operation_type: OperationType,
+    pub content_before: Option<String>,
+    pub content_after: Option<String>,
+    pub change_summary: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl PendingOperation {
+    pub fn from_request(req: CreateOperationRequest) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            document_id: req.document_id,
+            user_id: req.user_id,
+            operation_type: req.operation_type,
+            content_before: req.content_before,
+            content_after: req.content_after,
+            change_summary: req.change_summary,
+            created_at: Utc::now(),
+        }
+    }
+
+    pub fn to_document_operation(&self) -> DocumentOperation {
+        DocumentOperation {
+            id: self.id,
+            document_id: self.document_id.clone(),
+            user_id: self.user_id.clone(),
+            operation_type: self.operation_type,
+            content_before: self.content_before.clone(),
+            content_after: self.content_after.clone(),
+            change_summary: self.change_summary.clone(),
+            created_at: self.created_at,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct CreateOperationResponse {
     pub id: Uuid,

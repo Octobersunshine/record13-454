@@ -2,11 +2,10 @@ mod handlers;
 mod models;
 mod repository;
 
-use crate::handlers::{AppState, create_operation, health_check, list_operations};
+use crate::handlers::{create_operation, health_check, list_operations, AppState};
 use crate::repository::OperationRepository;
 use axum::routing::{get, post};
 use axum::Router;
-use sqlx::SqlitePool;
 use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -19,15 +18,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:operations.db".to_string());
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite:operations.db".to_string());
     info!("连接数据库: {}", database_url);
 
-    let pool = SqlitePool::connect(&database_url).await?;
-    let repo = OperationRepository::new(pool);
-
-    info!("初始化数据库表...");
-    repo.init_db().await?;
-    info!("数据库初始化完成");
+    let repo = OperationRepository::new(&database_url).await?;
+    info!("数据库初始化完成，WAL 模式已启用，后台写入 worker 已启动");
 
     let app_state: AppState = Arc::new(repo);
 
